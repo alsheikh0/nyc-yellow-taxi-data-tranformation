@@ -1,0 +1,11 @@
+nyc_taxi_profile:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: nyc_yellow_taxi_azdbricks
+      schema: main
+      host: adb-7405606536238312.12.azuredatabricks.net
+      http_path: /sql/1.0/warehouses/your-warehouse-id
+      token: dapiXXXXXXXXXXXXXXXX
+      threads: 4

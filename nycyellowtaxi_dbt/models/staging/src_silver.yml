@@ -1,0 +1,6 @@
+sources:
+  - name: silver
+    database: nyc_yellow_taxi_azdbricks   # ← match your catalog
+    schema: silver
+    tables:
+      - name: raw_taxi_trips
