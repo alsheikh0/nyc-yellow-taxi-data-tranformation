@@ -1,4 +1,4 @@
-# NYC Taxi Analytics — dbt Gold Layer
+# NYC Yellox Taxi Data Transformation - PySpark + DBT
 
 End-to-end data engineering project using NYC TLC Yellow Taxi data (2024).
 This repository contains the **dbt Gold layer** that sits on top of the PySpark
