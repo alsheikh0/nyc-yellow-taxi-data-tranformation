@@ -1,0 +1,37 @@
+# models/staging/sources.yml
+version: 2
+
+sources:
+  - name: silver
+    description: >
+      Silver layer Delta tables written by the PySpark Bronze→Silver job.
+      These are the cleaned, validated, and enriched trip records.
+    schema: silver
+
+    tables:
+      - name: yellow_taxi
+        description: >
+          Cleaned NYC Yellow Taxi trip records for 2024.
+          ~36M rows after quarantine filtering and deduplication.
+          Partitioned by pickup_month.
+        columns:
+          - name: pickup_datetime
+            description: Trip start timestamp (UTC)
+            tests:
+              - not_null
+          - name: dropoff_datetime
+            description: Trip end timestamp (UTC)
+            tests:
+              - not_null
+          - name: fare_amount
+            description: Base meter fare in USD
+            tests:
+              - not_null
+          - name: PULocationID
+            description: TLC taxi zone ID for pickup
+            tests:
+              - not_null
+          - name: DOLocationID
+            description: TLC taxi zone ID for dropoff
+            tests:
+              - not_null

@@ -1,0 +1,20 @@
+nyc_taxi:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: hive_metastore        # or your Unity Catalog name
+      schema: silver                 # default schema; overridden per model
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 4
+
+    prod:
+      type: databricks
+      catalog: hive_metastore
+      schema: silver
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH_PROD') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 8

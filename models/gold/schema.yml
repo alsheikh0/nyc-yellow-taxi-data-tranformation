@@ -1,0 +1,163 @@
+# models/gold/schema.yml
+# -------------------------------------------------------
+# Documents every Gold model and attaches dbt tests.
+# Run with: dbt test --select gold
+# -------------------------------------------------------
+
+version: 2
+
+models:
+
+  # ── DIMENSIONS ────────────────────────────────────────
+
+  - name: dim_date
+    description: >
+      Calendar dimension for 2024. One row per day.
+      Used for time intelligence: MTD, WoW, holiday filtering.
+    columns:
+      - name: date_key
+        description: Integer surrogate key in format YYYYMMDD
+        tests:
+          - unique
+          - not_null
+      - name: calendar_date
+        description: The actual calendar date
+        tests:
+          - unique
+          - not_null
+      - name: is_weekend
+        description: True if Saturday or Sunday
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+  - name: dim_zone
+    description: >
+      TLC taxi zone lookup. 265 zones mapped to boroughs and service zones.
+      Enriched with airport_zone and major_hub flags.
+    columns:
+      - name: location_id
+        description: TLC LocationID — FK to fact_trips.pickup/dropoff_location_id
+        tests:
+          - unique
+          - not_null
+      - name: borough
+        description: NYC borough name
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - Manhattan
+                - Brooklyn
+                - Queens
+                - Bronx
+                - Staten Island
+                - EWR
+                - Unknown
+
+  # ── FACTS ─────────────────────────────────────────────
+
+  - name: fact_trips
+    description: >
+      Trip-grain fact table. One row = one taxi trip.
+      Speed outliers and zero-duration trips excluded.
+      Partitioned by pickup_month for query performance.
+    columns:
+      - name: trip_id
+        description: Surrogate key generated from pickup/dropoff/location/fare
+        tests:
+          - unique
+          - not_null
+      - name: date_key
+        description: FK to dim_date.date_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: pickup_location_id
+        description: FK to dim_zone.location_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_zone')
+              field: location_id
+      - name: fare_amount
+        description: Base meter fare — must be positive in fact table
+        tests:
+          - not_null
+      - name: total_cost
+        description: Sum of all charges
+        tests:
+          - not_null
+      - name: trip_duration_min
+        description: Duration in minutes — must be positive
+        tests:
+          - not_null
+      - name: payment_type_label
+        tests:
+          - accepted_values:
+              values:
+                - credit_card
+                - cash
+                - no_charge
+                - dispute
+                - unknown
+
+  # ── AGGREGATES ────────────────────────────────────────
+
+  - name: agg_hourly_zone
+    description: >
+      Trip volume and revenue aggregated per hour per pickup zone.
+      Primary table for demand heatmaps and surge-pricing dashboards.
+    columns:
+      - name: pickup_date
+        tests:
+          - not_null
+      - name: pickup_hour
+        tests:
+          - not_null
+      - name: pickup_location_id
+        tests:
+          - not_null
+      - name: total_trips
+        tests:
+          - not_null
+      - name: total_revenue
+        tests:
+          - not_null
+
+  - name: agg_daily_borough
+    description: >
+      Daily KPIs per borough. Includes WoW % change, MTD running totals,
+      and borough ranking by trip volume and revenue.
+    columns:
+      - name: pickup_date
+        tests:
+          - not_null
+      - name: pickup_borough
+        tests:
+          - not_null
+      - name: total_trips
+        tests:
+          - not_null
+
+  - name: agg_payment_trends
+    description: >
+      Payment method mix and tipping behaviour by month, borough, and
+      weekend vs weekday. Includes payment type share % and tip bands.
+    columns:
+      - name: pickup_month
+        tests:
+          - not_null
+      - name: payment_type_label
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - credit_card
+                - cash
+                - no_charge
+                - dispute
+                - unknown

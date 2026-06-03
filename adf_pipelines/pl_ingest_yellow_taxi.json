@@ -1,0 +1,186 @@
+{
+  "name": "pl_ingest_yellow_taxi",
+  "description": "Ingests one month of NYC Yellow Taxi Parquet from the TLC HTTP endpoint into ADLS Gen2 Bronze layer. Parameterised by target_year and target_month so the same pipeline handles any month.",
+  "properties": {
+    "parameters": {
+      "target_year": {
+        "type": "string",
+        "defaultValue": "2024"
+      },
+      "target_month": {
+        "type": "string",
+        "defaultValue": "01"
+      }
+    },
+    "activities": [
+
+      {
+        "name": "CopyYellowTaxiParquet",
+        "description": "Downloads the monthly Parquet file from TLC and lands it in Bronze.",
+        "type": "Copy",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "01:00:00",
+          "retry": 3,
+          "retryIntervalInSeconds": 60,
+          "secureOutput": false
+        },
+        "typeProperties": {
+          "source": {
+            "type": "ParquetSource",
+            "storeSettings": {
+              "type": "HttpReadSettings",
+              "requestMethod": "GET"
+            }
+          },
+          "sink": {
+            "type": "ParquetSink",
+            "storeSettings": {
+              "type": "AzureBlobFSWriteSettings",
+              "copyBehavior": "PreserveHierarchy"
+            },
+            "formatSettings": {
+              "type": "ParquetWriteSettings"
+            }
+          },
+          "enableStaging": false,
+          "parallelCopies": 4,
+          "dataIntegrationUnits": 4
+        },
+        "inputs": [
+          {
+            "referenceName": "ds_tlc_http_parquet",
+            "type": "DatasetReference",
+            "parameters": {
+              "relative_url": {
+                "value": "@concat('yellow_tripdata_', pipeline().parameters.target_year, '-', pipeline().parameters.target_month, '.parquet')",
+                "type": "Expression"
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "ds_adls_bronze_parquet",
+            "type": "DatasetReference",
+            "parameters": {
+              "file_path": {
+                "value": "@concat('bronze/yellow_taxi/yellow_tripdata_', pipeline().parameters.target_year, '-', pipeline().parameters.target_month, '.parquet')",
+                "type": "Expression"
+              }
+            }
+          }
+        ]
+      },
+
+      {
+        "name": "CopyZoneLookup",
+        "description": "One-time copy of the taxi zone lookup CSV. Skipped if file already exists via exists check.",
+        "type": "Copy",
+        "dependsOn": [
+          {
+            "activity": "CopyYellowTaxiParquet",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "policy": {
+          "timeout": "00:10:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "source": {
+            "type": "DelimitedTextSource",
+            "storeSettings": {
+              "type": "HttpReadSettings",
+              "requestMethod": "GET"
+            },
+            "formatSettings": {
+              "type": "DelimitedTextReadSettings"
+            }
+          },
+          "sink": {
+            "type": "DelimitedTextSink",
+            "storeSettings": {
+              "type": "AzureBlobFSWriteSettings",
+              "copyBehavior": "PreserveHierarchy"
+            }
+          },
+          "enableStaging": false
+        },
+        "inputs": [
+          {
+            "referenceName": "ds_tlc_zone_lookup_csv",
+            "type": "DatasetReference"
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "ds_adls_bronze_csv",
+            "type": "DatasetReference",
+            "parameters": {
+              "file_path": "bronze/lookup/taxi_zone_lookup.csv"
+            }
+          }
+        ]
+      },
+
+      {
+        "name": "LogIngestionMetadata",
+        "description": "Writes ingestion run metadata to the pipeline_runs log table in Azure SQL.",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "CopyYellowTaxiParquet",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "storedProcedureName": "[dbo].[usp_log_pipeline_run]",
+          "storedProcedureParameters": {
+            "pipeline_name": {
+              "value": "pl_ingest_yellow_taxi",
+              "type": "String"
+            },
+            "target_month": {
+              "value": {
+                "value": "@concat(pipeline().parameters.target_year, '-', pipeline().parameters.target_month)",
+                "type": "Expression"
+              },
+              "type": "String"
+            },
+            "rows_copied": {
+              "value": {
+                "value": "@activity('CopyYellowTaxiParquet').output.rowsCopied",
+                "type": "Expression"
+              },
+              "type": "Int64"
+            },
+            "run_id": {
+              "value": {
+                "value": "@pipeline().RunId",
+                "type": "Expression"
+              },
+              "type": "String"
+            },
+            "status": {
+              "value": "Succeeded",
+              "type": "String"
+            }
+          }
+        },
+        "linkedServiceName": {
+          "referenceName": "ls_azure_sql_metadata",
+          "type": "LinkedServiceReference"
+        }
+      }
+
+    ],
+
+    "annotations": [
+      "nyc-taxi",
+      "bronze-ingestion",
+      "monthly"
+    ]
+  }
+}
