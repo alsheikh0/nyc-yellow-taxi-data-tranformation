@@ -1,17 +1,5 @@
-# Databricks notebook source
-# Title: bronze_to_silver_yellow_taxi
-# ─────────────────────────────────────────────────────────────────────────────
-# Converts raw Bronze Parquet files into a clean Silver Delta table.
-# Can be run manually for backfill or triggered by the Airflow DAG.
-#
-# Parameters (passed via Databricks job / Airflow DatabricksRunNowOperator):
-#   target_month  : "YYYY-MM"  e.g. "2024-03"  (process one month only)
-#                   or "all"                    (full rebuild for 2024)
-#   mode          : "incremental" | "full"
-# ─────────────────────────────────────────────────────────────────────────────
 
-# COMMAND ----------
-# Widget declarations — used when running interactively in Databricks UI
+
 dbutils.widgets.text("target_month", "2024-01", "Target Month (YYYY-MM or 'all')")
 dbutils.widgets.dropdown("mode", "incremental", ["incremental", "full"], "Run Mode")
 
@@ -21,7 +9,7 @@ MODE         = dbutils.widgets.get("mode")
 print(f"target_month = {TARGET_MONTH}")
 print(f"mode         = {MODE}")
 
-# COMMAND ----------
+
 # Imports
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -39,17 +27,16 @@ spark = SparkSession.builder \
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
     .getOrCreate()
 
-# COMMAND ----------
+
 # Storage paths — update to your ADLS account name
-STORAGE_ACCOUNT = "nyctaxistorage"   # <-- change this
+STORAGE_ACCOUNT = "nyctaxistorageacc"   # <-- change this
 BRONZE_PATH      = f"abfss://bronze@{STORAGE_ACCOUNT}.dfs.core.windows.net/yellow_taxi/"
 ZONE_PATH        = f"abfss://bronze@{STORAGE_ACCOUNT}.dfs.core.windows.net/lookup/taxi_zone_lookup.csv"
 SILVER_PATH      = f"abfss://silver@{STORAGE_ACCOUNT}.dfs.core.windows.net/yellow_taxi/"
 QUARANTINE_PATH  = f"abfss://silver@{STORAGE_ACCOUNT}.dfs.core.windows.net/rejected/yellow_taxi/"
 
-# COMMAND ----------
-# STEP 1 — Read Bronze files
-# ─────────────────────────────────────────────────────────────────────────────
+# Read Bronze files
+
 if TARGET_MONTH == "all" or MODE == "full":
     file_pattern = BRONZE_PATH + "*.parquet"
     print("Reading ALL monthly files (full rebuild)")
@@ -67,9 +54,9 @@ df_raw = (
 raw_count = df_raw.count()
 print(f"Raw rows read: {raw_count:,}")
 
-# COMMAND ----------
-# STEP 2 — Parse timestamps + date infiltration filter
-# ─────────────────────────────────────────────────────────────────────────────
+
+# Parse timestamps + date infiltration filter
+
 df_typed = (
     df_raw
     .withColumn("pickup_datetime",  to_timestamp("tpep_pickup_datetime"))
@@ -89,9 +76,9 @@ df_date_rejected = df_tagged.filter(col("reject_reason").isNotNull())
 date_reject_count = df_date_rejected.count()
 print(f"Date infiltration rejects: {date_reject_count:,}")
 
-# COMMAND ----------
-# STEP 3 — Business rule validation
-# ─────────────────────────────────────────────────────────────────────────────
+
+#  Business rule validation
+
 df_validated = df_date_valid.withColumn(
     "reject_reason",
     when(col("pickup_datetime") >= col("dropoff_datetime"),
@@ -124,8 +111,8 @@ df_all_rejects = df_date_rejected.unionByName(df_rule_bad, allowMissingColumns=T
 )
 print(f"Quarantine written: {df_all_rejects.count():,} rows")
 
-# COMMAND ----------
-# STEP 4 — Deduplication
+
+# Deduplication
 # ─────────────────────────────────────────────────────────────────────────────
 dedup_window = Window.partitionBy(
     "pickup_datetime", "dropoff_datetime",
@@ -142,9 +129,9 @@ df_deduped = (
 dupe_count = df_clean.count() - df_deduped.count()
 print(f"Duplicates removed: {dupe_count:,}")
 
-# COMMAND ----------
-# STEP 5 — Derived columns
-# ─────────────────────────────────────────────────────────────────────────────
+
+# Derived columns
+
 df_enriched = (
     df_deduped
     .withColumn("trip_duration_min",
@@ -178,9 +165,7 @@ df_enriched = (
         (col("avg_speed_mph") > 100).cast("boolean"))
 )
 
-# COMMAND ----------
-# STEP 6 — Zone enrichment join
-# ─────────────────────────────────────────────────────────────────────────────
+# Zone enrichment join
 df_zones = (
     spark.read.csv(ZONE_PATH, header=True, inferSchema=True)
     .select(
@@ -206,9 +191,8 @@ df_silver = (
     .drop(col("do.LocationID"))
 )
 
-# COMMAND ----------
-# STEP 7 — Write Silver Delta table
-# ─────────────────────────────────────────────────────────────────────────────
+# Write Silver Delta table
+
 write_mode = "overwrite" if MODE == "full" else "append"
 
 (df_silver
@@ -230,8 +214,7 @@ print(f"  Duplicates removed  : {dupe_count:,}")
 print(f"  Silver rows written : {silver_count:,}")
 print(f"{'='*60}")
 
-# COMMAND ----------
-# STEP 8 — Run OPTIMIZE + ZORDER on Silver for query performance
+# Run OPTIMIZE + ZORDER on Silver for query performance
 # ─────────────────────────────────────────────────────────────────────────────
 # ZORDERing on pickup_datetime and pickup_borough dramatically speeds up
 # the most common dashboard queries (time range + borough filter combos)
@@ -242,9 +225,8 @@ spark.sql(f"""
 """)
 print("OPTIMIZE complete.")
 
-# COMMAND ----------
-# STEP 9 — Log pipeline run stats to Delta metadata table
-# ─────────────────────────────────────────────────────────────────────────────
+# Log pipeline run stats to Delta metadata table
+
 from pyspark.sql import Row
 
 run_log = spark.createDataFrame([Row(
